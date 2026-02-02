@@ -24,6 +24,14 @@ import {
   getMousePosition,
 } from '@/lib/utils/input';
 import {
+  createJoystickState,
+  drawJoystick,
+  getJoystickPositions,
+  isTouchInJoystick,
+  calculateJoystickValue,
+  JoystickState,
+} from '@/lib/utils/joystick';
+import {
   handleBulletZombieCollisions,
   handleZombiePlayerCollisions,
 } from '@/lib/systems/collision';
@@ -48,9 +56,18 @@ export default function GamePage() {
   const [savingScore, setSavingScore] = useState(false);
   const [scoreSaved, setScoreSaved] = useState(false);
   const [isLoggedIn, setIsLoggedIn] = useState(false);
+  const [showRotateMessage, setShowRotateMessage] = useState(false);
 
   useEffect(() => {
     setIsLoggedIn(!!localStorage.getItem('token'));
+    
+    // Check orientation for mobile message
+    const checkOrientation = () => {
+      setShowRotateMessage(window.innerHeight > window.innerWidth);
+    };
+    checkOrientation();
+    window.addEventListener('resize', checkOrientation);
+    
     const canvas = canvasRef.current;
     if (!canvas) return;
 
@@ -67,6 +84,7 @@ export default function GamePage() {
       score: 0,
       map: MAPS[Math.floor(Math.random() * MAPS.length)], // Random map
       inputState: createInputState(),
+      joystickState: createJoystickState(),
       waveState: createWaveState(),
       lastShootTime: 0,
       animationId: 0,
@@ -79,61 +97,120 @@ export default function GamePage() {
     const cleanupKeyboard = setupKeyboardListeners(gameState.inputState);
     const cleanupMouse = setupMouseListeners(canvas, gameState.inputState, CANVAS_WIDTH, CANVAS_HEIGHT);
 
-    // Mobile/Touch Support
-    const handleTouch = (e: TouchEvent) => {
+    // Mobile/Touch Support - 3D Joystick System
+    const positions = getJoystickPositions(CANVAS_WIDTH, CANVAS_HEIGHT);
+
+    const handleTouchStart = (e: TouchEvent) => {
       e.preventDefault();
-      gameState.inputState.touch.active = true;
       const rect = canvas.getBoundingClientRect();
       const scaleX = CANVAS_WIDTH / rect.width;
       const scaleY = CANVAS_HEIGHT / rect.height;
 
-      gameState.inputState.touch.isAiming = false;
-      gameState.inputState.touch.moveX = 0;
-      gameState.inputState.touch.moveY = 0;
-
-      for (let i = 0; i < e.touches.length; i++) {
-        const touch = e.touches[i];
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        const touch = e.changedTouches[i];
         const tx = (touch.clientX - rect.left) * scaleX;
         const ty = (touch.clientY - rect.top) * scaleY;
 
-        // Simple Joystick Split: Left half move, Right half aim
-        if (tx < CANVAS_WIDTH / 2) {
-          // Movement Joystick (Center at ~200, 600)
-          const centerX = 200;
-          const centerY = 600;
-          const dx = tx - centerX;
-          const dy = ty - centerY;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          const maxDist = 80;
-          gameState.inputState.touch.moveX = dx / Math.max(dist, maxDist);
-          gameState.inputState.touch.moveY = dy / Math.max(dist, maxDist);
-        } else {
-          // Aiming Joystick (Center at ~1000, 600)
-          const centerX = 1000;
-          const centerY = 600;
-          const dx = tx - centerX;
-          const dy = ty - centerY;
-          gameState.inputState.touch.aimX = dx / 50; // Sensitivity
-          gameState.inputState.touch.aimY = dy / 50;
+        // Check if touch is on movement joystick
+        if (!gameState.joystickState.moveJoystick.active &&
+            isTouchInJoystick(tx, ty, positions.move.x, positions.move.y, positions.move.radius)) {
+          gameState.joystickState.moveJoystick.active = true;
+          gameState.joystickState.moveJoystick.touchId = touch.identifier;
+          gameState.joystickState.moveJoystick.startX = tx;
+          gameState.joystickState.moveJoystick.startY = ty;
+        }
+        // Check if touch is on aim joystick
+        else if (!gameState.joystickState.aimJoystick.active &&
+                 isTouchInJoystick(tx, ty, positions.aim.x, positions.aim.y, positions.aim.radius)) {
+          gameState.joystickState.aimJoystick.active = true;
+          gameState.joystickState.aimJoystick.touchId = touch.identifier;
+          gameState.joystickState.aimJoystick.startX = tx;
+          gameState.joystickState.aimJoystick.startY = ty;
+        }
+      }
+    };
+
+    const handleTouchMove = (e: TouchEvent) => {
+      e.preventDefault();
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = CANVAS_WIDTH / rect.width;
+      const scaleY = CANVAS_HEIGHT / rect.height;
+
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        const touch = e.changedTouches[i];
+        const tx = (touch.clientX - rect.left) * scaleX;
+        const ty = (touch.clientY - rect.top) * scaleY;
+
+        // Update movement joystick
+        if (gameState.joystickState.moveJoystick.active &&
+            gameState.joystickState.moveJoystick.touchId === touch.identifier) {
+          const value = calculateJoystickValue(
+            tx, ty,
+            positions.move.x, positions.move.y,
+            positions.move.radius
+          );
+          gameState.joystickState.moveJoystick.x = value.x;
+          gameState.joystickState.moveJoystick.y = value.y;
+          gameState.inputState.touch.moveX = value.x;
+          gameState.inputState.touch.moveY = value.y;
+          gameState.inputState.touch.active = true;
+        }
+
+        // Update aim joystick
+        if (gameState.joystickState.aimJoystick.active &&
+            gameState.joystickState.aimJoystick.touchId === touch.identifier) {
+          const value = calculateJoystickValue(
+            tx, ty,
+            positions.aim.x, positions.aim.y,
+            positions.aim.radius
+          );
+          gameState.joystickState.aimJoystick.x = value.x;
+          gameState.joystickState.aimJoystick.y = value.y;
+          gameState.inputState.touch.aimX = value.x;
+          gameState.inputState.touch.aimY = value.y;
           gameState.inputState.touch.isAiming = true;
         }
       }
     };
 
     const handleTouchEnd = (e: TouchEvent) => {
+      e.preventDefault();
+      
+      for (let i = 0; i < e.changedTouches.length; i++) {
+        const touch = e.changedTouches[i];
+
+        // Reset movement joystick
+        if (gameState.joystickState.moveJoystick.touchId === touch.identifier) {
+          gameState.joystickState.moveJoystick.active = false;
+          gameState.joystickState.moveJoystick.x = 0;
+          gameState.joystickState.moveJoystick.y = 0;
+          gameState.joystickState.moveJoystick.touchId = null;
+          gameState.inputState.touch.moveX = 0;
+          gameState.inputState.touch.moveY = 0;
+        }
+
+        // Reset aim joystick
+        if (gameState.joystickState.aimJoystick.touchId === touch.identifier) {
+          gameState.joystickState.aimJoystick.active = false;
+          gameState.joystickState.aimJoystick.x = 0;
+          gameState.joystickState.aimJoystick.y = 0;
+          gameState.joystickState.aimJoystick.touchId = null;
+          gameState.inputState.touch.aimX = 0;
+          gameState.inputState.touch.aimY = 0;
+          gameState.inputState.touch.isAiming = false;
+        }
+      }
+
+      // Check if all touches are gone
       if (e.touches.length === 0) {
-        gameState.inputState.touch.moveX = 0;
-        gameState.inputState.touch.moveY = 0;
-        gameState.inputState.touch.isAiming = false;
-      } else {
-        // Re-eval touches
-        handleTouch(e);
+        gameState.inputState.touch.active = false;
       }
     };
 
-    canvas.addEventListener('touchstart', handleTouch, { passive: false });
-    canvas.addEventListener('touchmove', handleTouch, { passive: false });
-    canvas.addEventListener('touchend', handleTouchEnd);
+    canvas.addEventListener('touchstart', handleTouchStart, { passive: false });
+    canvas.addEventListener('touchmove', handleTouchMove, { passive: false });
+    canvas.addEventListener('touchend', handleTouchEnd, { passive: false });
+    canvas.addEventListener('touchcancel', handleTouchEnd, { passive: false });
 
     // Pause handler
     const handlePauseKey = (e: KeyboardEvent) => {
@@ -394,16 +471,32 @@ export default function GamePage() {
       gameState.bullets.forEach((bullet) => bullet.render(ctx));
       gameState.player.render(ctx);
 
-      // Render Mobile Joysticks
-      if (gameState.inputState.touch.active) {
-        ctx.globalAlpha = 0.3;
-        ctx.fillStyle = '#fff';
-        // Move
-        ctx.beginPath(); ctx.arc(200, 600, 60, 0, Math.PI * 2); ctx.fill();
-        // Aim
-        ctx.beginPath(); ctx.arc(1000, 600, 60, 0, Math.PI * 2); ctx.fill();
-        ctx.globalAlpha = 1.0;
-      }
+      // Render 3D Mobile Joysticks
+      const joystickPositions = getJoystickPositions(CANVAS_WIDTH, CANVAS_HEIGHT);
+      
+      // Draw movement joystick
+      drawJoystick(
+        ctx,
+        joystickPositions.move.x,
+        joystickPositions.move.y,
+        joystickPositions.move.radius,
+        gameState.joystickState.moveJoystick.x,
+        gameState.joystickState.moveJoystick.y,
+        'rgb(59, 130, 246)', // Blue
+        gameState.joystickState.moveJoystick.active
+      );
+
+      // Draw aim/shoot joystick
+      drawJoystick(
+        ctx,
+        joystickPositions.aim.x,
+        joystickPositions.aim.y,
+        joystickPositions.aim.radius,
+        gameState.joystickState.aimJoystick.x,
+        gameState.joystickState.aimJoystick.y,
+        'rgb(239, 68, 68)', // Red
+        gameState.joystickState.aimJoystick.active
+      );
 
       // Render HUD
       ctx.fillStyle = '#ffffff';
@@ -503,10 +596,12 @@ export default function GamePage() {
       cancelAnimationFrame(gameState.animationId);
       cleanupKeyboard();
       cleanupMouse();
-      canvas.removeEventListener('touchstart', handleTouch);
-      canvas.removeEventListener('touchmove', handleTouch);
+      canvas.removeEventListener('touchstart', handleTouchStart);
+      canvas.removeEventListener('touchmove', handleTouchMove);
       canvas.removeEventListener('touchend', handleTouchEnd);
+      canvas.removeEventListener('touchcancel', handleTouchEnd);
       window.removeEventListener('keydown', handlePauseKey);
+      window.removeEventListener('resize', checkOrientation);
     };
   }, []);
 
@@ -566,7 +661,7 @@ export default function GamePage() {
         padding: '0 20px'
       }}>
         <p style={{ marginBottom: '0.5rem', color: '#fbbf24', fontWeight: 'bold' }}>
-          {typeof window !== 'undefined' && window.innerHeight > window.innerWidth ? 'Rotate for better experience' : ''}
+          {showRotateMessage ? 'Rotate for better experience' : ''}
         </p>
         <p>WASD/Arrows to move • Click to shoot</p>
         <p style={{ fontSize: '0.75rem', marginTop: '4px' }}>On Mobile/iPad: Use Left side to move, Right side to aim/shoot</p>
