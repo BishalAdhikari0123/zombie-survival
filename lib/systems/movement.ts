@@ -21,11 +21,12 @@ export function updateZombieMovement(
 
     if (dist > 0) {
       // 1. Ghost Mode & Off-screen check
+      // Allow zombies to "ghost" through obstacles if they are currently stuck OR outside the map
       const isStuck =
-        zombie.x < -50 ||
-        zombie.x > 1250 ||
-        zombie.y < -50 ||
-        zombie.y > 850 ||
+        zombie.x < 30 ||
+        zombie.x > 1170 ||
+        zombie.y < 30 ||
+        zombie.y > 770 ||
         checkMapCollision(zombie.x, zombie.y, zombie.width, zombie.height, map) !== null;
 
       // Base angle towards player

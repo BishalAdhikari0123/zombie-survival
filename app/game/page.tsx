@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
+import Link from 'next/link';
 import { Player } from '@/lib/entities/Player';
 import { Zombie } from '@/lib/entities/Zombie';
 import { Bullet } from '@/lib/entities/Bullet';
@@ -42,6 +43,8 @@ export default function GamePage() {
   const [paused, setPaused] = useState(false);
   const [finalScore, setFinalScore] = useState(0);
   const [finalWave, setFinalWave] = useState(0);
+  const [savingScore, setSavingScore] = useState(false);
+  const [scoreSaved, setScoreSaved] = useState(false);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -137,6 +140,9 @@ export default function GamePage() {
     };
     window.addEventListener('keydown', handlePauseKey);
 
+    // Game over session tracking
+    const startTime = Date.now();
+
     // Game loop
     let lastTime = performance.now();
 
@@ -189,9 +195,7 @@ export default function GamePage() {
         ctx.stroke();
       }
 
-      // Draw Obstacles (Floor layer? No, walls should be above grid but below entities? Actually walls are tall.
-      // Let's draw walls AFTER grid but before entities? Or after entities? 
-      // Top down 2D, if heads overlap walls... let's draw walls below entities for now to avoid occlusion issues)
+      // Draw Obstacles
       gameState.map.obstacles.forEach(obs => {
         ctx.fillStyle = obs.color;
         ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
@@ -204,9 +208,32 @@ export default function GamePage() {
       // Check if player is alive
       if (!gameState.player.isAlive()) {
         gameState.isRunning = false;
-        setFinalScore(gameState.score);
-        setFinalWave(gameState.waveState.currentWave);
+        const score = gameState.score;
+        const wave = gameState.waveState.currentWave;
+        const duration = Math.floor((Date.now() - startTime) / 1000);
+
+        setFinalScore(score);
+        setFinalWave(wave);
         setGameOver(true);
+
+        // Save session if logged in
+        const token = localStorage.getItem('token');
+        if (token) {
+          setSavingScore(true);
+          import('@/lib/api').then(({ gameApi }) => {
+            gameApi.saveSession({
+              score,
+              waveReached: wave,
+              duration
+            }).then(() => {
+              setSavingScore(false);
+              setScoreSaved(true);
+            }).catch(err => {
+              console.error('Failed to save score:', err);
+              setSavingScore(false);
+            });
+          });
+        }
         return;
       }
 
@@ -587,6 +614,19 @@ export default function GamePage() {
           <p style={{ fontSize: '1.5rem', marginBottom: '2rem' }}>
             Waves Survived: <span style={{ color: '#22c55e' }}>{finalWave}</span>
           </p>
+
+          <div style={{ marginBottom: '2rem' }}>
+            {savingScore ? (
+              <p style={{ color: '#64748b', fontSize: '1rem' }}>Saving score to leaderboard...</p>
+            ) : scoreSaved ? (
+              <p style={{ color: '#22c55e', fontSize: '1rem', fontWeight: 'bold' }}>✓ Score saved to Hall of Fame!</p>
+            ) : !localStorage.getItem('token') ? (
+              <p style={{ color: '#94a3b8', fontSize: '0.875rem' }}>
+                <Link href="/login" style={{ color: '#3b82f6', textDecoration: 'underline' }}>Log in</Link> to save your score.
+              </p>
+            ) : null}
+          </div>
+
           <button
             onClick={handleRestart}
             style={{
