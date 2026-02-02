@@ -1,6 +1,6 @@
 # Zombie Survival Game 🧟
 
-A fast-paced, high-octane 2D top-down zombie survival game built with **Next.js 14**, **TypeScript**, and **HTML Canvas**. Survive endless waves of zombies, scavenge for powerful weapons, and climb the leaderboard.
+A fast-paced, high-octane 2D top-down zombie survival game built with **Next.js 14**, **TypeScript**, and **HTML Canvas**. Developed entirely through **Vibe Coding**. Survive endless waves of zombies, scavenge for powerful weapons, and climb the leaderboard.
 
 ## 🎮 Game Features
 
