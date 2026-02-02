@@ -10,14 +10,19 @@ function LoginForm() {
     const [error, setError] = useState('');
     const [success, setSuccess] = useState('');
     const [loading, setLoading] = useState(false);
+    const [isMounted, setIsMounted] = useState(false);
     const router = useRouter();
     const searchParams = useSearchParams();
 
     useEffect(() => {
-        if (searchParams.get('registered')) {
+        setIsMounted(true);
+    }, []);
+
+    useEffect(() => {
+        if (isMounted && searchParams.get('registered')) {
             setSuccess('Registration successful! Please log in.');
         }
-    }, [searchParams]);
+    }, [isMounted, searchParams]);
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault();
@@ -26,8 +31,11 @@ function LoginForm() {
         setSuccess('');
         try {
             const data = await authApi.login(formData);
-            localStorage.setItem('token', data.token);
-            localStorage.setItem('user', JSON.stringify(data.user));
+            // Extra safety for SSR envs
+            if (typeof window !== 'undefined') {
+                localStorage.setItem('token', data.token);
+                localStorage.setItem('user', JSON.stringify(data.user));
+            }
             router.push('/');
         } catch (err: any) {
             setError(err.message);
@@ -35,6 +43,10 @@ function LoginForm() {
             setLoading(false);
         }
     };
+
+    if (!isMounted) {
+        return <div style={{ color: '#94a3b8', textAlign: 'center' }}>Loading form...</div>;
+    }
 
     return (
         <div style={{

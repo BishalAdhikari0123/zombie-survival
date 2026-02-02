@@ -45,8 +45,10 @@ export default function GamePage() {
   const [finalWave, setFinalWave] = useState(0);
   const [savingScore, setSavingScore] = useState(false);
   const [scoreSaved, setScoreSaved] = useState(false);
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
 
   useEffect(() => {
+    setIsLoggedIn(!!localStorage.getItem('token'));
     const canvas = canvasRef.current;
     if (!canvas) return;
 
@@ -620,7 +622,7 @@ export default function GamePage() {
               <p style={{ color: '#64748b', fontSize: '1rem' }}>Saving score to leaderboard...</p>
             ) : scoreSaved ? (
               <p style={{ color: '#22c55e', fontSize: '1rem', fontWeight: 'bold' }}>✓ Score saved to Hall of Fame!</p>
-            ) : !localStorage.getItem('token') ? (
+            ) : !isLoggedIn ? (
               <p style={{ color: '#94a3b8', fontSize: '0.875rem' }}>
                 <Link href="/login" style={{ color: '#3b82f6', textDecoration: 'underline' }}>Log in</Link> to save your score.
               </p>
